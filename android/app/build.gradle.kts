@@ -39,6 +39,13 @@ android {
             signingConfig = signingConfigs.getByName("debug")
         }
     }
+
+    lint {
+        // image_picker_android 的 lintVital 在 CI 上有已知的 lint 自身崩溃
+        // （CommentDetector 解析 JavaDoc 时 NoSuchMethodError），跳过该检查
+        checkReleaseBuilds = false
+        abortOnError = false
+    }
 }
 
 kotlin {
