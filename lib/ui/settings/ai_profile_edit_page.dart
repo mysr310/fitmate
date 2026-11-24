@@ -37,7 +37,10 @@ class _AiProfileEditPageState extends ConsumerState<AiProfileEditPage> {
     });
   }
 
+  bool _saving = false;
+
   Future<void> _save() async {
+    if (_saving) return; // R3-低11
     final name = _name.text.trim();
     final baseUrl = _baseUrl.text.trim().replaceAll(RegExp(r'/+$'), '');
     final apiKey = _apiKey.text.trim();
@@ -46,24 +49,35 @@ class _AiProfileEditPageState extends ConsumerState<AiProfileEditPage> {
           .showSnackBar(const SnackBar(content: Text('名称、接口地址、API Key 都不能为空')));
       return;
     }
-    final db = ref.read(databaseProvider);
-    if (widget.existing == null) {
-      await db.addAiConfig(AiConfigsCompanion.insert(
-        name: name,
-        baseUrl: baseUrl,
-        apiKey: apiKey,
-        createdAt: DateTime.now().millisecondsSinceEpoch ~/ 1000,
-      ));
-    } else {
-      await db.updateAiConfig(widget.existing!.copyWith(
-        name: name,
-        baseUrl: baseUrl,
-        apiKey: apiKey,
-      ));
-    }
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('已保存')));
-      Navigator.pop(context);
+    _saving = true;
+    if (mounted) setState(() {});
+    try {
+      final db = ref.read(databaseProvider);
+      if (widget.existing == null) {
+        await db.addAiConfig(AiConfigsCompanion.insert(
+          name: name,
+          baseUrl: baseUrl,
+          apiKey: apiKey,
+          createdAt: DateTime.now().millisecondsSinceEpoch ~/ 1000,
+        ));
+      } else {
+        await db.updateAiConfig(widget.existing!.copyWith(
+          name: name,
+          baseUrl: baseUrl,
+          apiKey: apiKey,
+        ));
+      }
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('已保存')));
+        Navigator.pop(context);
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('保存失败：$e')));
+      }
+    } finally {
+      _saving = false;
+      if (mounted) setState(() {});
     }
   }
 

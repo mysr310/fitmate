@@ -1,3 +1,8 @@
+import 'dart:convert';
+import 'dart:io';
+import 'dart:typed_data';
+
+import 'package:archive/archive.dart';
 import 'package:drift/drift.dart' hide isNull, isNotNull;
 import 'package:drift/native.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -19,10 +24,7 @@ void main() {
     await db.close();
   });
 
-  ProfilesCompanion profileCompanion({
-    String name = '测试',
-    int createdAt = 1000,
-  }) {
+  ProfilesCompanion profileCompanion({String name = '测试', int createdAt = 1000}) {
     return ProfilesCompanion.insert(
       name: Value(name),
       sex: 'male',
@@ -44,7 +46,6 @@ void main() {
       ]);
       final rows = await db.select(db.profiles).get();
       expect(rows, hasLength(1), reason: '双击建档不能产生两行，否则 watchProfile 断言失败');
-      // watchProfile 也不应抛错
       final watched = await db.watchProfile().first;
       expect(watched, isNotNull);
     });
@@ -69,12 +70,10 @@ void main() {
       );
       addTearDown(container.dispose);
 
-      // Riverpod 3 默认 autoDispose：必须保持监听，provider 链才不会被释放
       final sub = container.listen(budgetProvider.future, (_, __) {});
       addTearDown(sub.close);
 
       final before = (await container.read(budgetProvider.future))!;
-      // 记录新体重 → 预算应随最新体重变化（减脂目标下热量目标下降）
       await db.upsertWeight('2026-11-26', 55);
       await Future<void>.delayed(const Duration(milliseconds: 50));
       final after = (await container.read(budgetProvider.future))!;
@@ -86,7 +85,7 @@ void main() {
   });
 
   group('B6/B7 AI 槽位健壮性', () {
-    test('Key 为空的接口视为未配置（恢复备份后提示重新粘贴）', () {
+    test('Key 为空的接口视为未配置', () {
       final emptyKey = AiConfig(
           id: 1, name: 'DS', baseUrl: 'https://api.deepseek.com', apiKey: '', createdAt: 0);
       final okKey = AiConfig(
@@ -121,20 +120,76 @@ void main() {
   });
 
   group('A6 备份文件排序', () {
-    test('秒级时间戳可解析；同秒时按路径兜底保持稳定', () {
-      expect(
-        BackupService.backupStamp('健身备份_20261126_143012.fitbak'),
-        20261126143012,
-      );
-      expect(BackupService.backupStamp('健身备份_20261126_1430.fitbak'), 202611261430);
+    test('时间戳统一归一化为 14 位，4 位与 6 位混排顺序正确', () {
+      expect(BackupService.backupStamp('健身备份_20261126_143012.fitbak'), 20261126143012);
+      expect(BackupService.backupStamp('健身备份_20261126_1430.fitbak'), 20261126143000);
       expect(BackupService.backupStamp('无关文件.fitbak'), 0);
+      expect(BackupService.backupStamp('健身备份_20261126_14301.fitbak'), 0, reason: '5 位时间不合法');
+
+      // 修复前：14 位的 14:00:12 会错误压过 12 位的 14:30
+      final newer = '健身备份_20261126_1430.fitbak'; // 14:30
+      final older = '自动备份_20261126_140012.fitbak'; // 14:00:12
+      expect(BackupService.compareBackupRecency(older, newer) > 0, isTrue,
+          reason: '14:30 的分钟级备份应排在 14:00:12 之前');
+
       final a = '自动备份_20261126_140000.fitbak';
       final b = '健身备份_20261126_140000.fitbak';
-      // 同一时间戳：比较结果确定且可重复（不要求谁在前，但必须稳定）
-      expect(
-        BackupService.compareBackupRecency(a, b),
-        BackupService.compareBackupRecency(a, b),
-      );
+      // 同秒时按路径兜底：'健'(U+5065) < '自'(U+81EA)，b 排前即返回负值；
+      // 断言具体方向而非自比较（R4-N10）
+      expect(BackupService.compareBackupRecency(a, b), lessThan(0));
+      expect(BackupService.compareBackupRecency(b, a), greaterThan(0));
     });
   });
+
+  group('R3-高1 空/缺表备份拒绝', () {
+    test('缺一张必需表的备份被拒绝，数据库保持原样', () async {
+      await db.upsertWeight('2026-11-26', 65);
+      final svc = BackupService(db, baseDir: Directory.systemTemp);
+      final file = await svc.createBackup(auto: false);
+      final parsed = await svc.parseBackup(await file.readAsBytes());
+      final tables = Map<String, dynamic>.from(parsed.payload['tables'] as Map);
+      tables.remove('foods');
+
+      final bad = await _repackWithTables(tables);
+      await expectLater(
+        svc.parseBackup(bad),
+        throwsException,
+      );
+
+      final weights = await db.select(db.weightLogs).get();
+      expect(weights, hasLength(1));
+      expect(weights.single.weightKg, 65);
+    });
+
+    test('空 tables 同样被拒绝', () async {
+      final svc = BackupService(db, baseDir: Directory.systemTemp);
+      final bad = await _repackWithTables(const {});
+      await expectLater(svc.parseBackup(bad), throwsException);
+    });
+  });
+
+  group('R3-中7 体重删除刷新流', () {
+    test('删除后 watchWeightLogs 流立即反映', () async {
+      await db.upsertWeight('2026-11-26', 65);
+      final rows = await db.select(db.weightLogs).get();
+
+      await (db.delete(db.weightLogs)..where((w) => w.id.equals(rows.single.id))).go();
+      final logs = await db.watchWeightLogs().firstWhere((l) => l.isEmpty).timeout(
+            const Duration(seconds: 5),
+          );
+      expect(logs, isEmpty);
+    });
+  });
+}
+
+Future<List<int>> _repackWithTables(Map<String, dynamic> tables) async {
+  final archive = Archive();
+  final jsonBytes = utf8.encode(jsonEncode({
+    'app': 'fitmate',
+    'version': 1,
+    'created_at': 0,
+    'tables': tables,
+  }));
+  archive.addFile(ArchiveFile.bytes('data.json', Uint8List.fromList(jsonBytes)));
+  return ZipEncoder().encode(archive);
 }

@@ -22,6 +22,10 @@ class FoodAiService {
     if (endpoint == null || model == null) {
       throw AiException('尚未配置「食物识别」AI 模型，请到 我的 → AI 配置 完成设置');
     }
+    // R3-中10：恢复备份后 Key 为空时给用户明确的补救提示，而不是发出注定 401 的请求
+    if (endpoint.apiKey.trim().isEmpty) {
+      throw AiException('API Key 缺失（备份恢复后需要重新粘贴），请到 我的 → AI 配置 补填');
+    }
     return (endpoint: endpoint, model: model);
   }
 
@@ -89,6 +93,10 @@ class PlanAiService {
     final model = slots.modelFor(AiSlotService.slotPlan);
     if (endpoint == null || model == null) {
       throw AiException('尚未配置「计划生成」AI 模型，请到 我的 → AI 配置 完成设置');
+    }
+    // R3-中10：空 Key 同样提前拦截
+    if (endpoint.apiKey.trim().isEmpty) {
+      throw AiException('API Key 缺失（备份恢复后需要重新粘贴），请到 我的 → AI 配置 补填');
     }
     final profile = await _ref.read(profileProvider.future);
     if (profile == null) {

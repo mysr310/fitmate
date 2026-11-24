@@ -33,6 +33,27 @@ class _OnboardingPageState extends ConsumerState<OnboardingPage> {
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (kIsWeb && Uri.base.queryParameters.containsKey('autofill')) {
         await _finish();
+        return;
+      }
+      // R3-中9：从"重新进行初始设置"进入时，用现有档案回填表单，
+      // 不让默认值悄悄覆盖用户的真实数据
+      final profile = ref.read(profileProvider).value;
+      if (profile != null && mounted) {
+        setState(() {
+          _nameCtrl.text = profile.name;
+          _sex = profile.sex;
+          _age = profile.age;
+          _height = profile.heightCm;
+          _activity = activityFrom(profile.activityLevel);
+          _goal = goalFrom(profile.goal);
+          if (profile.targetWeightKg != null) _targetCtrl.text = fmtWeight(profile.targetWeightKg!);
+        });
+        // 体重用最新一次记录（档案里的 weightKg 是建档冗余值）
+        final db = ref.read(databaseProvider);
+        final latest = await db.latestWeight();
+        if (latest != null && mounted) {
+          setState(() => _weight = latest);
+        }
       }
     });
   }
@@ -64,7 +85,14 @@ class _OnboardingPageState extends ConsumerState<OnboardingPage> {
         onboardingDone: const Value(true),
         createdAt: DateTime.now().millisecondsSinceEpoch ~/ 1000,
       ));
-      await db.upsertWeight(todayString(), _weight, note: '初始体重');
+      // R3-中9：今天已有体重记录时不再用表单值覆盖（保护真实称重数据）
+      final existing = await db.getWeightOn(todayString());
+      if (existing == null) {
+        await db.upsertWeight(todayString(), _weight, note: '初始体重');
+      }
+      if (mounted && Navigator.of(context).canPop()) {
+        Navigator.pop(context); // 重新初始化场景：保存后返回
+      }
     } finally {
       _finishing = false;
     }
@@ -239,7 +267,17 @@ class _NumField extends StatefulWidget {
 
 class _NumFieldState extends State<_NumField> {
   late final TextEditingController _ctrl =
-      TextEditingController(text: widget.decimal ? widget.initial.toString() : widget.initial.toString());
+      TextEditingController(text: widget.initial.toString());
+
+  @override
+  void didUpdateWidget(covariant _NumField oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // R4-N4：档案回填后同步显示值；用户已在输入框手动改过则不打扰
+    if (widget.initial.toString() != oldWidget.initial.toString() &&
+        _ctrl.text != widget.initial.toString()) {
+      _ctrl.text = widget.initial.toString();
+    }
+  }
 
   @override
   void dispose() {

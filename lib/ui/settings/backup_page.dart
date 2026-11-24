@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:drift/drift.dart' show Value;
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
@@ -7,8 +8,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:share_plus/share_plus.dart';
 
+import '../../data/db/database.dart';
 import '../../providers.dart';
 import '../../services/lan_server.dart';
+import 'restore_flow.dart';
 
 /// 提取简短错误信息（不带堆栈）
 String briefError(Object e) {
@@ -35,8 +38,8 @@ class _BackupPageState extends ConsumerState<BackupPage> {
 
   @override
   void dispose() {
-    _lan.stop();
-    _lan.uploadedFile.dispose();
+    // N9：先等服务关闭，再释放回调所需的 notifier，避免在途上传写入已释放对象
+    _lan.stop().then((_) => _lan.uploadedFile.dispose());
     super.dispose();
   }
 
@@ -48,7 +51,17 @@ class _BackupPageState extends ConsumerState<BackupPage> {
 
   Future<void> _onLanUpload() async {
     final path = _lan.uploadedFile.value;
-    if (path == null || !mounted || _restoring) return;
+    if (path == null || !mounted || _restoring || _busy) return;
+    // N9：局域网上传的文件也登记进备份历史（kind=lan），可在页面上分享/恢复
+    try {
+      final f = File(path);
+      await ref.read(backupServiceProvider).db.addBackup(BackupsCompanion.insert(
+            path: path,
+            sizeBytes: Value(await f.length()),
+            kind: const Value('lan'),
+            createdAt: DateTime.now().millisecondsSinceEpoch ~/ 1000,
+          ));
+    } catch (_) {}
     await _restoreFromFile(path);
     if (mounted) {
       setState(() {
@@ -211,12 +224,13 @@ class _BackupPageState extends ConsumerState<BackupPage> {
                           IconButton(
                             tooltip: '分享',
                             icon: const Icon(Icons.send_outlined, size: 20),
-                            onPressed: () => _shareFile(b.path),
+                            onPressed: _busy || _restoring ? null : () => _shareFile(b.path),
                           ),
                           IconButton(
                             tooltip: '从此备份恢复',
                             icon: const Icon(Icons.restore, size: 20),
-                            onPressed: () => _restoreFromFile(b.path),
+                            // N8：与备份/其他恢复互斥；文件被滚动清理掉的条目恢复时会提示
+                            onPressed: _busy || _restoring ? null : () => _restoreFromFile(b.path),
                           ),
                         ],
                       ),
@@ -231,6 +245,7 @@ class _BackupPageState extends ConsumerState<BackupPage> {
   }
 
   Future<void> _createBackup() async {
+    if (_busy || _restoring) return; // R3-高6：与恢复流程互斥
     setState(() => _busy = true);
     try {
       final f = await ref.read(backupServiceProvider).createBackup(auto: false);
@@ -294,56 +309,14 @@ class _BackupPageState extends ConsumerState<BackupPage> {
   }
 
   Future<void> _restoreFromFile(String path) async {
-    if (_restoring) return; // A9：多条恢复入口（导入/历史/局域网）互斥
+    if (_restoring) return; // A9：多条恢复入口（导入/历史/局域网/intent）互斥
     _restoring = true;
     try {
-      final svc = ref.read(backupServiceProvider);
-      final bytes = await File(path).readAsBytes();
       if (!mounted) return;
-      final parsed = await svc.parseBackup(bytes);
-      if (!mounted) return;
-      final mode = await _askRestoreMode(parsed.payload);
-      if (mode == null) return;
-      final summary = await svc.restore(
-            payload: parsed.payload,
-            photos: parsed.photos,
-            overwrite: mode == 'overwrite',
-          );
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('恢复完成：$summary'), duration: const Duration(seconds: 4)),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text('恢复失败：${briefError(e)}'),
-          duration: const Duration(seconds: 4),
-        ));
-      }
+      await runBackupRestoreFlow(context, ref, path);
     } finally {
       _restoring = false;
     }
-  }
-
-  Future<String?> _askRestoreMode(Map<String, dynamic> payload) {
-    return showDialog<String>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('恢复备份'),
-        content: Text(
-            '该备份创建于 ${DateTime.fromMillisecondsSinceEpoch((payload['created_at'] as int? ?? 0) * 1000)}\n\n'
-            '· 覆盖恢复：清空本机数据，完全变成备份里的样子\n'
-            '· 合并恢复：保留本机数据，把备份里的记录并入（计划将导入为未启用）'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('取消')),
-          OutlinedButton(
-              onPressed: () => Navigator.pop(ctx, 'merge'), child: const Text('合并恢复')),
-          FilledButton(
-              onPressed: () => Navigator.pop(ctx, 'overwrite'), child: const Text('覆盖恢复')),
-        ],
-      ),
-    );
   }
 
   Future<void> _startLan() async {

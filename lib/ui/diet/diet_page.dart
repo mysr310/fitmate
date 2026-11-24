@@ -236,13 +236,16 @@ class _EntryTile extends ConsumerWidget {
         padding: const EdgeInsets.only(right: 20),
         child: Icon(Icons.delete_outline, color: scheme.onErrorContainer),
       ),
-      onDismissed: (_) async {
+      // R3-低12：删除失败时返回 false，条目留在列表里（避免视觉移除与数据不一致）
+      confirmDismiss: (_) async {
         try {
           await ref.read(databaseProvider).deleteFoodEntry(entry.id);
+          return true;
         } catch (e) {
           if (context.mounted) {
             ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('删除失败：$e')));
           }
+          return false;
         }
       },
       child: ListTile(

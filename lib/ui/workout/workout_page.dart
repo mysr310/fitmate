@@ -14,6 +14,7 @@ class WorkoutPage extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    ref.watch(uiRefreshProvider); // R4-N3：跨午夜恢复时强制重建
     final planAsync = ref.watch(activePlanProvider);
 
     return Scaffold(

@@ -19,6 +19,7 @@ class _PlanPreviewPageState extends ConsumerState<PlanPreviewPage> {
   bool _saving = false;
 
   Future<void> _save({required bool makeActive}) async {
+    if (_saving) return; // R3-低11
     setState(() => _saving = true);
     try {
       final db = ref.read(databaseProvider);

@@ -1,3 +1,4 @@
+import 'dart:async' show FutureOr;
 import 'dart:io';
 import 'dart:math';
 
@@ -28,7 +29,9 @@ class LanTransferServer {
     final dirPath = backupDirPath;
     final t = _token!;
     final router = Router()
-      ..get('/', (Request req) => _index(req, t))
+      // R3-高2：首页同样必须带令牌——页面里内嵌着令牌与下载入口，
+      // 无令牌返回 403，避免同 Wi-Fi 设备直接绕过
+      ..get('/', (Request req) => _guard(req, () => _index(req, t)))
       ..get('/backup', (Request req) => _guard(req, () => _download(req, dirPath)))
       ..post('/upload', (Request req) => _guard(req, () => _upload(req, dirPath)));
 
@@ -50,8 +53,8 @@ class LanTransferServer {
 
   bool _authorized(Request req) => req.url.queryParameters['k'] == _token;
 
-  /// 除首页外的所有读写都必须带令牌（A8：同一 Wi-Fi 内的陌生设备不可读写）
-  Future<Response> _guard(Request req, Future<Response> Function() action) async {
+  /// 所有读写都必须带令牌（R3-高2：首页也受保护）
+  Future<Response> _guard(Request req, FutureOr<Response> Function() action) async {
     if (!_authorized(req)) return Response(403, body: '令牌无效，请从手机显示的完整网址进入');
     return action();
   }
@@ -161,19 +164,37 @@ async function upload(f){
     if (!safe.endsWith('.fitbak')) {
       return Response(400, body: '只接受 .fitbak 备份文件');
     }
-    // A8：流式接收并限制大小，超出立即拒绝，避免内存被占满
-    final builder = <int>[];
-    var total = 0;
-    await for (final chunk in req.read()) {
-      total += chunk.length;
-      if (total > maxUploadBytes) {
-        return Response(413, body: '文件超过 100MB 上限');
-      }
-      builder.addAll(chunk);
-    }
-    if (builder.isEmpty) return Response(400, body: '内容为空');
 
-    // A8：文件名唯一化，不覆盖已有的自动/手动备份
+    // A8 + R3-低12：流式接收——先写临时文件，边收边限大小；
+    // 不再把整个文件累积在内存里（低内存设备 OOM 风险）
+    final tmp = File(p.join(dirPath, '$safe.tmp'));
+    final sink = tmp.openWrite();
+    try {
+      var total = 0;
+      await for (final chunk in req.read()) {
+        total += chunk.length;
+        if (total > maxUploadBytes) {
+          await sink.close();
+          await tmp.delete();
+          return Response(413, body: '文件超过 100MB 上限');
+        }
+        sink.add(chunk);
+      }
+      await sink.flush();
+      await sink.close();
+      if (total == 0) {
+        await tmp.delete();
+        return Response(400, body: '内容为空');
+      }
+    } catch (e) {
+      try {
+        await sink.close();
+      } catch (_) {}
+      if (await tmp.exists()) await tmp.delete();
+      return Response(500, body: '接收失败：$e');
+    }
+
+    // 文件名唯一化，不覆盖已有的自动/手动备份
     var file = File(p.join(dirPath, safe));
     var attempt = 0;
     while (await file.exists()) {
@@ -181,7 +202,7 @@ async function upload(f){
       final stem = safe.substring(0, safe.length - BackupService.ext.length);
       file = File(p.join(dirPath, '$stem-upload$attempt${BackupService.ext}'));
     }
-    await file.writeAsBytes(builder, flush: true);
+    await tmp.rename(file.path);
     uploadedFile.value = file.path;
     return Response.ok('ok');
   }

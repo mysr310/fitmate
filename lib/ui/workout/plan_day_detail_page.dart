@@ -18,12 +18,44 @@ class PlanDayDetailPage extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final daysAsync = ref.watch(planDaysProvider(planId));
     final exercisesAsync = ref.watch(exercisesOfDayProvider(dayId));
-    final days = daysAsync.value ?? const <PlanDay>[];
-    final day = days.where((d) => d.id == dayId).firstOrNull;
     final scheme = Theme.of(context).colorScheme;
 
+    // R3-低12：区分加载/出错/已删除三种状态，不再无限转圈
+    final dayAsyncResult = daysAsync.when(
+      loading: () => null,
+      error: (e, _) => null,
+      data: (days) {
+        return days.where((d) => d.id == dayId).firstOrNull;
+      },
+    );
+    final day = dayAsyncResult;
+
     if (day == null) {
-      return Scaffold(appBar: AppBar(), body: const Center(child: CircularProgressIndicator()));
+      if (daysAsync.hasError) {
+        return Scaffold(
+          appBar: AppBar(title: const Text('训练日')),
+          body: Center(child: Text('加载失败：${daysAsync.error}')),
+        );
+      }
+      if (daysAsync.isLoading) {
+        return Scaffold(appBar: AppBar(), body: const Center(child: CircularProgressIndicator()));
+      }
+      return Scaffold(
+        appBar: AppBar(title: const Text('训练日')),
+        body: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text('该训练日已被删除或不存在'),
+              const SizedBox(height: 12),
+              FilledButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('返回'),
+              ),
+            ],
+          ),
+        ),
+      );
     }
 
     return Scaffold(

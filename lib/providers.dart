@@ -132,16 +132,51 @@ class RootTabNotifier extends Notifier<int> {
 final rootTabProvider = NotifierProvider<RootTabNotifier, int>(() => RootTabNotifier());
 
 class SelectedDateNotifier extends Notifier<String> {
-  @override
-  String build() => todayString();
+  /// 用户当前停留在"今天"（未手动翻历史日期）。
+  /// App 跨午夜恢复时据此自动前进到新的一天（R3-高4）。
+  bool _wasToday = true;
 
-  void select(String date) => state = date;
-  void goToday() => state = todayString();
+  @override
+  String build() {
+    _wasToday = true;
+    return todayString();
+  }
+
+  void select(String date) {
+    _wasToday = date == todayString();
+    state = date;
+  }
+
+  void goToday() {
+    _wasToday = true;
+    state = todayString();
+  }
+
   void shift(int days) {
     final d = parseDate(state).add(Duration(days: days));
+    // R4-N3：与"今天的日期字符串"比较（此前误用 DateTime == String 恒为 false）
+    _wasToday = fmtDate(d) == todayString();
     state = fmtDate(d);
   }
+
+  /// App 生命周期恢复时调用：用户此前停在"今天"才前进到新的今天，
+  /// 手动选择的历史日期保持不动
+  void refreshIfWasToday() {
+    if (_wasToday) state = todayString();
+  }
 }
+
+/// 跨午夜恢复时通知各常驻页面重建（Today/训练/体重页不监听
+/// selectedDateProvider，需要显式触发一次刷新，R4-N3）
+class UiRefreshNotifier extends Notifier<int> {
+  @override
+  int build() => 0;
+
+  void bump() => state = state + 1;
+}
+
+final uiRefreshProvider =
+    NotifierProvider<UiRefreshNotifier, int>(() => UiRefreshNotifier());
 
 final selectedDateProvider =
     NotifierProvider<SelectedDateNotifier, String>(() => SelectedDateNotifier());

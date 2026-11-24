@@ -53,6 +53,7 @@ class _ProfileEditPageState extends ConsumerState<ProfileEditPage> {
   }
 
   Future<void> _save() async {
+    if (_saving) return; // R3-低11
     setState(() => _saving = true);
     try {
       final db = ref.read(databaseProvider);
@@ -71,6 +72,10 @@ class _ProfileEditPageState extends ConsumerState<ProfileEditPage> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('已保存')));
         Navigator.pop(context);
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('保存失败：$e')));
       }
     } finally {
       if (mounted) setState(() => _saving = false);

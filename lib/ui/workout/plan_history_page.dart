@@ -63,13 +63,16 @@ class _HistoryTile extends ConsumerWidget {
         padding: const EdgeInsets.only(right: 20),
         child: Icon(Icons.delete_outline, color: scheme.onErrorContainer),
       ),
-      onDismissed: (_) async {
+      // R3-低12：删除失败返回 false，条目留在列表
+      confirmDismiss: (_) async {
         try {
           await ref.read(databaseProvider).deleteWorkoutLog(log.id);
+          return true;
         } catch (e) {
           if (context.mounted) {
             ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('删除失败：$e')));
           }
+          return false;
         }
       },
       child: Card(

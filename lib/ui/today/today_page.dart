@@ -13,6 +13,7 @@ class TodayPage extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    ref.watch(uiRefreshProvider); // R4-N3：跨午夜恢复时强制重建
     final budgetAsync = ref.watch(budgetProvider);
     final totals = ref.watch(intakeTotalsProvider(todayString()));
     final profile = ref.watch(profileProvider).value;

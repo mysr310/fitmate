@@ -278,7 +278,12 @@ class AppDatabase extends _$AppDatabase {
   }
 
   Future<Food?> findFoodByName(String name) =>
-      (select(foods)..where((f) => f.name.equals(name))).getSingleOrNull();
+      // R3-低12：limit(1)——历史数据/异常备份可能出现同名多行，
+      // getSingleOrNull 会抛 "Too many elements" 让保存整单回滚
+      (select(foods)..where((f) => f.name.equals(name))
+            ..orderBy([(f) => OrderingTerm.desc(f.lastUsedAt)])
+            ..limit(1))
+          .getSingleOrNull();
 
   Future<bool> upsertFood(Food f) => update(foods).replace(f);
 
@@ -458,6 +463,10 @@ class AppDatabase extends _$AppDatabase {
           target: [weightLogs.date],
         ),
       );
+
+  /// 某一天的体重记录（R3-中9：重建页据此判断当天是否已有称重）
+  Future<WeightLog?> getWeightOn(String date) =>
+      (select(weightLogs)..where((w) => w.date.equals(date))).getSingleOrNull();
 
   Future<double?> latestWeight() async {
     final row = await (select(weightLogs)

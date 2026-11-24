@@ -203,6 +203,7 @@ class _FoodConfirmPageState extends ConsumerState<FoodConfirmPage> {
   }
 
   Future<void> _save() async {
+    if (_saving) return; // R3-低11：setState 生效前的连点窗口
     final validItems = _items.where((i) => i.isValid && i.kcalValue > 0).toList();
     if (validItems.isEmpty) {
       ScaffoldMessenger.of(context)

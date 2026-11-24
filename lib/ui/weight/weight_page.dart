@@ -13,6 +13,7 @@ class WeightPage extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    ref.watch(uiRefreshProvider); // R4-N3：跨午夜恢复时强制重建
     final logsAsync = ref.watch(weightLogsProvider);
     final profile = ref.watch(profileProvider).value;
     final scheme = Theme.of(context).colorScheme;
@@ -144,12 +145,12 @@ class WeightPage extends ConsumerWidget {
                         child: IconButton(
                           icon: const Icon(Icons.delete_outline, size: 20),
                           onPressed: () async {
-                            // C2：删除加异常兜底，失败时提示而不是静默
+                            // R3-中7：用 Drift 生成 API 删除（customStatement 不刷新流，
+                            // 会导致列表/趋势图/预算仍用已删除体重）
                             try {
-                              await ref.read(databaseProvider).customStatement(
-                                    'DELETE FROM weight_logs WHERE id = ?',
-                                    [log.id],
-                                  );
+                              final d = ref.read(databaseProvider);
+                              await (d.delete(d.weightLogs)..where((w) => w.id.equals(log.id)))
+                                  .go();
                             } catch (e) {
                               if (context.mounted) {
                                 ScaffoldMessenger.of(context).showSnackBar(

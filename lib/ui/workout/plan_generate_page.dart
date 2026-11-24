@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../ai/ai_service.dart';
+import '../../providers.dart';
 import 'plan_preview_page.dart';
 
 /// AI 生成计划表单
@@ -21,6 +22,18 @@ class _PlanGeneratePageState extends ConsumerState<PlanGeneratePage> {
   bool _busy = false;
 
   @override
+  void initState() {
+    super.initState();
+    // R3-低12：把身体档案里"可用器材/场地"预填进表单（档案说明承诺它会参与 AI 生成）
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final profile = ref.read(profileProvider).value;
+      if (profile != null && profile.equipmentNote.isNotEmpty && mounted) {
+        _equipmentCtrl.text = profile.equipmentNote;
+      }
+    });
+  }
+
+  @override
   void dispose() {
     _equipmentCtrl.dispose();
     _prefCtrl.dispose();
@@ -28,6 +41,7 @@ class _PlanGeneratePageState extends ConsumerState<PlanGeneratePage> {
   }
 
   Future<void> _generate() async {
+    if (_busy) return; // R3-低11：防止双发 180 秒 AI 请求（双倍计费）
     setState(() => _busy = true);
     try {
       final plan = await ref.read(planAiServiceProvider).generate(PlanGenParams(

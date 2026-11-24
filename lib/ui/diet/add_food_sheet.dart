@@ -33,6 +33,7 @@ Future<void> showAddFoodSheet(BuildContext context, {String? fixedDate}) async {
                 );
                 if (x != null && context.mounted) {
                   final bytes = await x.readAsBytes();
+                  if (!context.mounted) return; // R4-N10
                   Navigator.push(
                     context,
                     MaterialPageRoute(
@@ -66,6 +67,7 @@ Future<void> showAddFoodSheet(BuildContext context, {String? fixedDate}) async {
                 );
                 if (x != null && context.mounted) {
                   final bytes = await x.readAsBytes();
+                  if (!context.mounted) return; // R4-N10
                   Navigator.push(
                     context,
                     MaterialPageRoute(
