@@ -6,7 +6,8 @@ plugins {
 
 android {
     namespace = "com.fitmate"
-    compileSdk = flutter.compileSdkVersion
+    // flutter_local_notifications 要求 compileSdk ≥ 37（CI 构建实测）
+    compileSdk = 37
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
