@@ -1,0 +1,39 @@
+name: fitmate
+description: "AI 健身管家：AI 训练计划 / 拍照识别卡路里 / 体重管理 / 备份互通"
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.14.0
+
+dependencies:
+  archive: ^4.7.1
+  dio: ^5.11.1
+  drift: ^2.35.4
+  drift_flutter: ^0.3.1
+  file_picker: ^13.4.1
+  fl_chart: ^1.3.1
+  flutter:
+    sdk: flutter
+  flutter_local_notifications: ^23.0.4
+  flutter_riverpod: ^3.5.0
+  image_picker: ^1.2.4
+  intl: ^0.20.3
+  material_ui: ^1.1.0
+  path: ^1.9.1
+  path_provider: ^2.1.6
+  qr_flutter: ^4.1.0
+  share_plus: ^13.3.1
+  shelf: ^1.4.3
+  shelf_router: ^1.1.5
+  sqlite3_flutter_libs: ^0.6.0+eol
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+  drift_dev: ^2.35.3
+  build_runner: ^2.17.1
+
+flutter:
+  uses-material-design: true
