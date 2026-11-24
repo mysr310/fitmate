@@ -46,3 +46,5 @@ app.*.map.json
 
 # Widget Preview related
 .widget_preview/
+# Web 预览中文字体（约17MB，仅本地保留；需要时从 noto-cjk 仓库下载放到 web/fonts/） 
+web/fonts/*.otf  
